@@ -2,6 +2,7 @@
 #include "Game.h"
 #include "SDL_image.h"
 #include "SDL.h"
+#include "Projectile.h"
 #include <string>
 #include "Constants.h"
 
@@ -22,7 +23,7 @@ Player::Player()
     destRect.h = srcRect.h * scale;
 }
 
-Player::Player(int x, int y, int w, int h, int s, int sc, bool isP1)
+Player::Player(int x, int y, int w, int h, int s, int sc, Uint32 attack_cooldown, bool isP1)
 {
     position = Vector2D(x, y);
     velocity = Vector2D();
@@ -35,10 +36,32 @@ Player::Player(int x, int y, int w, int h, int s, int sc, bool isP1)
     srcRect.w = width;
     srcRect.h = height;
     isPlayer1 = isP1;
+    lastAttackTime = 0;
+    ATTACK_COOLDOWN = attack_cooldown;
+    projectiles = nullptr;
 }
+
+
+
+
 
 Player::~Player()
 {
+}
+
+void Player::initProjectile(int bulletSize, int bulletSpeed, std::string path, std::vector<Projectile*> &projectiles, int ricochetLimit) {
+    projectileTexturePath = path;
+    projectileSize = bulletSize;
+    projectileSpeed = bulletSpeed;
+    projectileRicochetLimit = ricochetLimit;
+    this->projectiles = &projectiles;
+}
+
+void Player::createProjectile(){
+    Projectile* p = new Projectile(position.x+width/2*scale, position.y+height/2*scale, projectileSize, projectileSize, projectileSpeed, projectileRicochetLimit, isPlayer1);
+    p->velocity = projectileVelocity;
+    p->loadTexture(projectileTexturePath);
+    (*projectiles).push_back(p);
 }
 
 void Player::initAnimation() {
@@ -50,17 +73,34 @@ void Player::initAnimation() {
     addAnimation("WalkUp"           , 1, 8, 100);
     addAnimation("WalkLeft"         , 2, 8, 100);
     addAnimation("WalkRight"        , 3, 8, 100);
+    addAnimation("Attack"           , 0,10, 100);
+    addAnimation("HurtFaceDown"     , 0, 5, 100);
+    addAnimation("HurtFaceUp"       , 1, 5, 100);
+    addAnimation("HurtFaceLeft"     , 2, 5, 100);
+    addAnimation("HurtFaceRight"    , 3, 5, 100);
     playAnimation("Idle");
 }
 
 void Player::update()
 {
+    if (state == ATTACK || state == HURT) {
+        velocity = Vector2D();
+        if (isOnLastFrame()) {
+            if (state == ATTACK) {
+                createProjectile();
+            }
+            resetAnimation();
+            playAnimation("Idle");
+            state = IDLE;
+        }
+    }
     position.x += velocity.x;
     position.y += velocity.y;
     keepInBounds();
     
     if (animationSpeed > 0 && frames > 0) {
-        srcRect.x = srcRect.w * static_cast<int>((SDL_GetTicks() / animationSpeed) % frames);
+        Uint32 elapsedTime = SDL_GetTicks() - startTime;
+        srcRect.x = srcRect.w * static_cast<int>((elapsedTime / animationSpeed) % frames);
     }
 
     srcRect.y = animationIndex * height;
@@ -115,6 +155,11 @@ void Player::addAnimation(std::string animationName, int index, int frames, int 
     animations.emplace(animationName, Animation(index, frames, speed));
 }
 
+void Player::resetAnimation() {
+    startTime = SDL_GetTicks();
+    srcRect.x = 0;
+}
+
 void Player::playAnimation(std::string animationType) {
     if (animationType == "Idle") {
         playIdleAnimation();
@@ -125,10 +170,50 @@ void Player::playAnimation(std::string animationType) {
         playMoveAnimation();
         return;
     }
+
+    if (animationType == "Attack") {
+        playAttackAnimation();
+        return;
+    }
+
+    if (animationType == "Hurt") {
+        playHurtAnimation();
+        return;
+    }
+}
+
+void Player::playHurtAnimation() {
+    setTexture("Hurt");
+    state = HURT;
+    resetAnimation();
+    if (lastDirection == "Down") {
+        play("HurtFaceDown");
+        return;
+    }
+    if (lastDirection == "Up") {
+        play("HurtFaceUp");
+        return;
+    }
+    if (lastDirection == "Left") {
+        play("HurtFaceLeft");
+        return;
+    }
+    if (lastDirection == "Right") {
+        play("HurtFaceRight");
+        return;
+    }
+}
+
+void Player::playAttackAnimation() {
+    setTexture("Attack");
+    state = ATTACK;
+    resetAnimation();
+    play("Attack");
 }
 
 void Player::playIdleAnimation() {
     setTexture("Idle");
+    state = IDLE;
     if (lastDirection == "Down") {
         play("IdleFaceDown");
         return;
@@ -149,6 +234,7 @@ void Player::playIdleAnimation() {
 
 void Player::playWalkAnimation() {
     setTexture("Walk");
+    state = WALK;
     if (lastDirection == "Down") {
         play("WalkDown");
         return;
@@ -169,7 +255,6 @@ void Player::playWalkAnimation() {
 
 void Player::playMoveAnimation() {
     playWalkAnimation();
-    // Play Run base on speed
 }
 
 void Player::play(std::string animationName) {
@@ -254,7 +339,46 @@ void Player::handlePlayer2Input() {
     }
 }
 
+bool Player::collision(SDL_Rect target) {
+    if (
+        destRect.x + destRect.w*0.75 >= target.x 
+        && destRect.y + destRect.h*0.75 >= target.y
+        && target.x + target.w >= destRect.x + destRect.w*0.25
+        && target.y + target.h >= destRect.y + destRect.h*0.25
+    ) {
+        return true;
+    }
+    return false;
+}
+
+bool Player::isOnLastFrame() {
+    if (animationSpeed <= 0 || frames <= 0) return false;
+    
+    Uint32 elapsedTime = SDL_GetTicks() - startTime;
+    int currentFrame = static_cast<int>((elapsedTime / animationSpeed) % frames);
+    return currentFrame == frames - 1;
+}
+
+void Player::attack(Uint32 currentTime) {
+    playAnimation("Attack");
+    lastAttackTime = currentTime;
+    projectileVelocity = velocity.direction()*projectileSpeed;
+    if (projectileVelocity.x != 0 && projectileVelocity.y != 0) {
+        projectileVelocity.x /= 1.414;
+        projectileVelocity.y /= 1.414;
+    }
+    if (projectileVelocity== Vector2D()) {  // If player is not moving, use last direction
+        if (lastDirection == "Up") projectileVelocity= Vector2D(0, -projectileSpeed);
+        if (lastDirection == "Down") projectileVelocity= Vector2D(0, projectileSpeed);
+        if (lastDirection == "Left") projectileVelocity= Vector2D(-projectileSpeed, 0);
+        if (lastDirection == "Right") projectileVelocity= Vector2D(projectileSpeed, 0);
+    }
+}
+
 void Player::handleInput() {
+    if (state == ATTACK || state == HURT) {
+        return;
+    }
     if (isPlayer1) {
         handlePlayer1Input();
     } else {

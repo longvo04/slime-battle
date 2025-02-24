@@ -3,8 +3,10 @@
 #include "SDL.h"
 #include "Player.h"
 #include "Projectile.h"
+#include "Collision.h"
 #include "Constants.h"
 #include <string>
+#include <math.h>
 
 SDL_Renderer* Game::renderer = nullptr;
 SDL_Event Game::event;
@@ -25,14 +27,20 @@ Game::~Game()
 }
 
 void Game::initPlayers() {
-    player1 = new Player(300.0f,300.0f,64,64,PLAYER_SPEED,2);
+    player1 = new Player(300.0f,300.0f,64,64,PLAYER_SPEED,4,2000);
     player1->addTexture("Idle", "assets/img/slime1_idle.png");
     player1->addTexture("Walk", "assets/img/slime1_walk.png");
+    player1->addTexture("Attack", "assets/img/slime1_attack.png");
+    player1->addTexture("Hurt", "assets/img/slime1_hurt.png");
     player1->initAnimation();
+    player1->initProjectile(BULLET_SIZE*2, BULLET_SPEED*1.2, "assets/img/projectile_green.png", projectiles, 100);
 
-    player2 = new Player(500.0f,500.0f,64,64,PLAYER_SPEED,2, false);
+    player2 = new Player(500.0f,500.0f,64,64,PLAYER_SPEED*2,2,1000, false);
     player2->addTexture("Idle", "assets/img/slime2_idle.png");
     player2->addTexture("Walk", "assets/img/slime2_walk.png");
+    player2->addTexture("Attack", "assets/img/slime2_attack.png");
+    player2->addTexture("Hurt", "assets/img/slime2_hurt.png");
+    player2->initProjectile(BULLET_SIZE, BULLET_SPEED*2, "assets/img/projectile.png", projectiles, 7);
     player2->initAnimation();
     gameStart = 3;
 }
@@ -46,6 +54,11 @@ bool Game::init() {
         return false;
     }
 
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        printf("SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
+        return false;
+    }
+
     window = SDL_CreateWindow("SlimeBattle", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
     
     if (!window) {
@@ -56,9 +69,26 @@ bool Game::init() {
     if (!renderer) {
         return false;
     }
+
+    SDL_Surface* tempSurface = IMG_Load("assets/img/background.png");
+    if (tempSurface == NULL) {
+        printf("Failed to load background image! SDL_image Error: %s\n", IMG_GetError());
+        return false;
+    }
+    backgroundTexture = SDL_CreateTextureFromSurface(renderer, tempSurface);
+    SDL_FreeSurface(tempSurface);
+
+    backgroundMusic = Mix_LoadMUS("assets/audio/background.wav");
+    if (!backgroundMusic) {
+        printf("Failed to load background music! SDL_mixer Error: %s\n", Mix_GetError());
+        return false;
+    }
+
+    Mix_PlayMusic(backgroundMusic, -1);
+
     font = TTF_OpenFont("assets/fonts/DigitalDisco.ttf", 24);
-    initPlayers();
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    // initPlayers();
+    // SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     isRunning = true;
     return true;
 }
@@ -83,8 +113,8 @@ void Game::handleInput() {
         return;
     }
     Uint32 startTime = SDL_GetTicks(); // Get the start time
-    while(gameStart > 0) {
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);  // Black background
+    while(gameStart > 100) {
+        // SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);  // Black background
         SDL_RenderClear(renderer);
         gameStart = 3 - (SDL_GetTicks() - startTime) / 1000;
         renderText(std::to_string(gameStart), SCREEN_WIDTH/2, SCREEN_HEIGHT/2, {255, 0, 0, 255});
@@ -93,8 +123,53 @@ void Game::handleInput() {
     handleGameInput();
 }
 
+void Game::drawCooldownCircle(float x, float y, float radius, float progress) {
+    const int segments = 30;  // Number of segments to draw
+    float maxAngle = progress * 2 * M_PI;  // Convert progress (0-1) to radians
+    
+    // Draw background circle
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 100);  // Gray, semi-transparent
+    for (int i = 0; i < segments; i++) {
+        float startAngle = (float)i / segments * 2 * M_PI;
+        float endAngle = (float)(i + 1) / segments * 2 * M_PI;
+        
+        SDL_RenderDrawLine(renderer,
+            x + cos(startAngle) * radius,
+            y + sin(startAngle) * radius,
+            x + cos(endAngle) * radius,
+            y + sin(endAngle) * radius);
+    }
+    
+    // Draw remaining cooldown in brighter color
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);  // White
+    for (int i = 0; i < segments; i++) {
+        float startAngle = (float)i / segments * 2 * M_PI;
+        if (startAngle > maxAngle) break;  // Stop at progress point
+        
+        float endAngle = (float)(i + 1) / segments * 2 * M_PI;
+        if (endAngle > maxAngle) endAngle = maxAngle;
+        
+        SDL_RenderDrawLine(renderer,
+            x + cos(startAngle) * radius,
+            y + sin(startAngle) * radius,
+            x + cos(endAngle) * radius,
+            y + sin(endAngle) * radius);
+    }
+    // SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+}
+
 void Game::handleGameInput() {
     if (gameState == MENU) {
+        return;
+    }
+
+    if (gameState == GAME_OVER) {
+        const Uint8* state = SDL_GetKeyboardState(NULL);
+        if (state[SDL_SCANCODE_ESCAPE]) {
+            clearPlayers();
+            clearProjectiles();
+            gameState = MENU;
+        }
         return;
     }
     player1->handleInput();
@@ -103,7 +178,6 @@ void Game::handleGameInput() {
     static bool wasSpacePressed = false;    // Track previous state of Space key
     static bool wasReturnPressed = false;   // Track previous state of Return key
     static bool firstFrame = true;
-
     const Uint8* state = SDL_GetKeyboardState(NULL);
 
     if (firstFrame) {
@@ -111,7 +185,7 @@ void Game::handleGameInput() {
         wasReturnPressed = true;
         firstFrame = false;
     }
-    
+
     // Handle escape key
     if (state[SDL_SCANCODE_ESCAPE]) {
         clearPlayers();
@@ -119,22 +193,23 @@ void Game::handleGameInput() {
         gameState = MENU;
         firstFrame = true;
     }
-    
+
+    Uint32 currentTime = SDL_GetTicks();
     // Handle Space key (Player 1)
     bool isSpacePressed = state[SDL_SCANCODE_SPACE];
     if (isSpacePressed && !wasSpacePressed) {  // Only shoot if key was just pressed
-        Projectile* p = new Projectile(player1->position.x, player1->position.y, 40, 40, 1, true);
-        p->loadTexture("assets/img/projectile_green.png");
-        projectiles.push_back(p);
+        if (currentTime - player1->lastAttackTime >= player1->ATTACK_COOLDOWN) {
+            player1->attack(currentTime);
+        }
     }
     wasSpacePressed = isSpacePressed;  // Update previous state
     
     // Handle Return key (Player 2)
     bool isReturnPressed = state[SDL_SCANCODE_RETURN];
     if (isReturnPressed && !wasReturnPressed) {  // Only shoot if key was just pressed
-        Projectile* p = new Projectile(player2->position.x, player2->position.y, 20, 20, 2, false);
-        p->loadTexture("assets/img/projectile.png");
-        projectiles.push_back(p);
+        if (currentTime - player2->lastAttackTime >= player2->ATTACK_COOLDOWN) {
+            player2->attack(currentTime);
+        }
     }
     wasReturnPressed = isReturnPressed;  // Update previous state
 }
@@ -218,26 +293,77 @@ void Game::renderMenu()  {
     }
 }
 
+void Game::renderGameOver() {
+    SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, backgroundTexture, NULL, NULL);
+    
+    // Display winner text
+    SDL_Color winnerColor = {255, 215, 0, 255}; // Gold color
+    renderText(winnerText, SCREEN_WIDTH/2 - 150, SCREEN_HEIGHT/3, winnerColor);
+    
+    // Display scores
+    SDL_Color player1Color = {50, 168, 102, 255};
+    SDL_Color player2Color = {92, 30, 179, 255};
+    
+    std::string p1ScoreText = "Player 1: " + std::to_string(player1->score);
+    std::string p2ScoreText = "Player 2: " + std::to_string(player2->score);
+    
+    renderText(p1ScoreText, SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2, player1Color);
+    renderText(p2ScoreText, SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 + 50, player2Color);
+    
+    // Display return to menu message
+    Uint32 currentTime = SDL_GetTicks();
+    if ((currentTime - gameOverStartTime) / 500 % 2 == 0) { // Blinking effect
+        SDL_Color promptColor = {255, 255, 255, 255};
+        renderText("Press ESC to return to menu", SCREEN_WIDTH/2 - 180, SCREEN_HEIGHT * 3/4, promptColor);
+    }
+}
+
 void Game::renderGame() {
     SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, backgroundTexture, NULL, NULL);
 	player1->draw();
     player2->draw();
+    std::cout << projectiles.size() << std::endl;
     for (auto& p : projectiles)
     {
         p->draw();
     }
+
+    // Draw cooldown indicators
+    Uint32 currentTime = SDL_GetTicks();
+    if (currentTime - player1->lastAttackTime < player1->ATTACK_COOLDOWN) {
+        float progress = 1.0f - (float)(currentTime - player1->lastAttackTime) / player1->ATTACK_COOLDOWN;
+        float centerX = player1->destRect.x + player1->destRect.w / 2;
+        float centerY = player1->destRect.y + player1->destRect.h / 2;
+        drawCooldownCircle(centerX, centerY, player1->destRect.w * 0.4f, progress);
+    }
+    
+    // Player 2 cooldown
+    if (currentTime - player2->lastAttackTime < player2->ATTACK_COOLDOWN) {
+        float progress = 1.0f - (float)(currentTime - player2->lastAttackTime) / player2->ATTACK_COOLDOWN;
+        float centerX = player2->destRect.x + player2->destRect.w / 2;
+        float centerY = player2->destRect.y + player2->destRect.h / 2;
+        drawCooldownCircle(centerX, centerY, player2->destRect.w * 0.4f, progress);
+    }
+
     // Draw scores
-    SDL_Color textColor = {255, 255, 255, 255};
-    renderText(std::to_string(player1->score), SCREEN_WIDTH/4, 30, textColor);
-    renderText(std::to_string(player2->score), 3*SCREEN_WIDTH/4, 30, textColor);
+    SDL_Color textColor = {50, 168, 102, 255};
+    std::string mText = "Player 1: " + std::to_string(player1->score);
+    renderText(mText, SCREEN_WIDTH/4-50, 30, textColor);
+    textColor = {92, 30, 179, 255};
+    mText = "Player 2: " + std::to_string(player2->score);
+    renderText(mText, 3*SCREEN_WIDTH/4-50, 30, textColor);
     SDL_RenderPresent(renderer);
 }
 
 void Game::render()  {
     if (gameState == MENU) {
         renderMenu();
-    } else {
+    } else if (gameState == PLAYING) {
         renderGame();
+    } else if (gameState == GAME_OVER) {
+        renderGameOver();
     }
     SDL_RenderPresent(renderer);
 }
@@ -253,11 +379,50 @@ void Game::update() {
     {
         p->update();
     }
+    projectilesHandler();
+    // Check for win condition
+    if (player1->score >= 21 || player2->score >= 21) {
+        gameState = GAME_OVER;
+        gameOverStartTime = SDL_GetTicks();
+        
+        if (player1->score >= 21) {
+            winnerText = "Player 1 Wins!";
+        } else {
+            winnerText = "Player 2 Wins!";
+        }
+    }
+}
+
+void Game::projectilesHandler() {
+    for (auto it = projectiles.begin(); it != projectiles.end(); ) {
+        if ((*it)->ricochetCount >= (*it)->ricochetLimit) {
+            delete *it;
+            it = projectiles.erase(it);
+            continue;
+        }
+        if (Collision::AABB(player1->destRect, (*it)->destRect, 0.6) && !(*it)->isPlayer1) {
+            // hit player 1
+            player1->playAnimation("Hurt");
+            player2->score++;
+            delete *it;
+            it = projectiles.erase(it);
+        } else if (Collision::AABB(player2->destRect, (*it)->destRect, 0.6) && (*it)->isPlayer1) {
+            // hit player 2
+            player2->playAnimation("Hurt");
+            player1->score += 2;
+            delete *it;
+            it = projectiles.erase(it);
+        } else {
+            it++;
+        }
+    }
 }
 
 void Game::clean() {
+    Mix_FreeMusic(backgroundMusic);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    SDL_DestroyTexture(backgroundTexture);
     TTF_Quit();
     SDL_Quit();
 }

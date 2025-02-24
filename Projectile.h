@@ -9,14 +9,29 @@ class Projectile {
 public:
     Vector2D position;
     Vector2D velocity;
-    bool player1;
+    bool isPlayer1;
     int width;
     int height;
     int speed;
+    int ricochetCount = 0;
+    int ricochetLimit = 20;
     SDL_Texture* texture;
     SDL_Rect destRect;
 
-    Projectile(int x, int y, int w, int h, int s, bool player1);
+    Projectile operator=(const Projectile& p) {
+        position = p.position;
+        velocity = p.velocity;
+        isPlayer1 = p.isPlayer1;
+        width = p.width;
+        height = p.height;
+        speed = p.speed;
+        ricochetCount = p.ricochetCount;
+        ricochetLimit = p.ricochetLimit;
+        texture = p.texture;
+        destRect = p.destRect;
+        return *this;
+    }
+    Projectile(int x, int y, int w, int h, int s, int ricLimit, bool isPlayer1);
     ~Projectile();
 
     void update();
