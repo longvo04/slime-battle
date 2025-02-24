@@ -64,6 +64,22 @@ Vector2D& operator/(Vector2D& v1, const Vector2D& v2)
 	return v1.Divide(v2);
 }
 
+Vector2D& Vector2D::operator*(const float& i)
+{
+	this->x *= i;
+	this->y *= i;
+
+	return *this;
+}
+
+Vector2D& Vector2D::operator/(const float& i)
+{
+	this->x /= i;
+	this->y /= i;
+
+	return *this;
+}
+
 Vector2D& Vector2D::operator+=(const Vector2D& vec)
 {
 	return this->Add(vec);
@@ -98,6 +114,18 @@ Vector2D& Vector2D::Zero()
 	this->y = 0;
 
 	return *this;
+}
+
+bool Vector2D::operator==(const Vector2D& vec)
+{
+	return this->x == vec.x && this->y == vec.y;
+}
+
+Vector2D Vector2D::direction()
+{
+	float xD = x == 0? 0 : x/abs(x);
+	float yD = y == 0? 0 : y/abs(y);
+	return Vector2D(xD, yD);
 }
 
 std::ostream& operator<<(std::ostream& stream, const Vector2D& vec)
