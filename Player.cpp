@@ -23,7 +23,7 @@ Player::Player()
     destRect.h = srcRect.h * scale;
 }
 
-Player::Player(int x, int y, int w, int h, int s, int sc, Uint32 attack_cooldown, bool isP1)
+Player::Player(int x, int y, int w, int h, int s, int sc, Uint32 attack_cooldown, int d, bool isP1)
 {
     position = Vector2D(x, y);
     velocity = Vector2D();
@@ -38,6 +38,7 @@ Player::Player(int x, int y, int w, int h, int s, int sc, Uint32 attack_cooldown
     isPlayer1 = isP1;
     lastAttackTime = 0;
     ATTACK_COOLDOWN = attack_cooldown;
+    damage = d;
     projectiles = nullptr;
 }
 
@@ -62,6 +63,12 @@ void Player::createProjectile(){
     p->velocity = projectileVelocity;
     p->loadTexture(projectileTexturePath);
     (*projectiles).push_back(p);
+    std::cout << "Created projectile at position: " << p->position << std::endl; // Debug statement
+    std::cout << "Projectile velocity: " << p->velocity << std::endl; // Debug statement
+    std::cout << "Projectile speed: " << p->speed << std::endl; // Debug statement
+    std::cout << "Projectile size: " << p->width << "x" << p->height << std::endl; // Debug statement
+    std::cout << "Projectile ricochet limit: " << p->ricochetLimit << std::endl; // Debug statement
+    
 }
 
 void Player::initAnimation() {
@@ -87,6 +94,7 @@ void Player::update()
         velocity = Vector2D();
         if (isOnLastFrame()) {
             if (state == ATTACK) {
+                std::cout << "On last frame of attack animation, creating projectile." << std::endl; // Debug statement
                 createProjectile();
             }
             resetAnimation();
@@ -360,6 +368,7 @@ bool Player::isOnLastFrame() {
 }
 
 void Player::attack(Uint32 currentTime) {
+    std::cout << "Player attacking at time: " << currentTime << std::endl; // Debug statement
     playAnimation("Attack");
     lastAttackTime = currentTime;
     projectileVelocity = velocity.direction()*projectileSpeed;

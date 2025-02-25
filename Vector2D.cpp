@@ -123,8 +123,11 @@ bool Vector2D::operator==(const Vector2D& vec)
 
 Vector2D Vector2D::direction()
 {
-	float xD = x == 0? 0 : x/abs(x);
-	float yD = y == 0? 0 : y/abs(y);
+	const float epsilon = 1e-6; // Small value to prevent division by zero
+	float xD = x == 0? 0 : x/(abs(x) + epsilon);
+	float yD = y == 0? 0 : y/(abs(y) + epsilon);
+	if (abs(xD) > 10) xD = 0;
+	if (abs(yD) > 10) yD = 0;
 	return Vector2D(xD, yD);
 }
 

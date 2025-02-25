@@ -27,20 +27,20 @@ Game::~Game()
 }
 
 void Game::initPlayers() {
-    player1 = new Player(300.0f,300.0f,64,64,PLAYER_SPEED,4,2000);
+    player1 = new Player(SCREEN_WIDTH/4,SCREEN_HEIGHT/2,64,64,PLAYER_SPEED*1.2,2,1000, 1, true);
     player1->addTexture("Idle", "assets/img/slime1_idle.png");
     player1->addTexture("Walk", "assets/img/slime1_walk.png");
     player1->addTexture("Attack", "assets/img/slime1_attack.png");
     player1->addTexture("Hurt", "assets/img/slime1_hurt.png");
     player1->initAnimation();
-    player1->initProjectile(BULLET_SIZE*2, BULLET_SPEED*1.2, "assets/img/projectile_green.png", projectiles, 100);
+    player1->initProjectile(BULLET_SIZE, BULLET_SPEED*2, "assets/img/projectile_green.png", projectiles, 15);
 
-    player2 = new Player(500.0f,500.0f,64,64,PLAYER_SPEED*2,2,1000, false);
+    player2 = new Player(3*SCREEN_WIDTH/4,SCREEN_HEIGHT/2,64,64,PLAYER_SPEED*1.2,2,1000, 1, false);
     player2->addTexture("Idle", "assets/img/slime2_idle.png");
     player2->addTexture("Walk", "assets/img/slime2_walk.png");
     player2->addTexture("Attack", "assets/img/slime2_attack.png");
     player2->addTexture("Hurt", "assets/img/slime2_hurt.png");
-    player2->initProjectile(BULLET_SIZE, BULLET_SPEED*2, "assets/img/projectile.png", projectiles, 7);
+    player2->initProjectile(BULLET_SIZE, BULLET_SPEED*2, "assets/img/projectile.png", projectiles, 15);
     player2->initAnimation();
     gameStart = 3;
 }
@@ -79,12 +79,15 @@ bool Game::init() {
     SDL_FreeSurface(tempSurface);
 
     backgroundMusic = Mix_LoadMUS("assets/audio/background.wav");
-    if (!backgroundMusic) {
-        printf("Failed to load background music! SDL_mixer Error: %s\n", Mix_GetError());
-        return false;
+    attackSound = Mix_LoadWAV("assets/audio/attack.wav");
+    hitSound = Mix_LoadWAV("assets/audio/hurt.wav");
+    
+    if (!backgroundMusic || !attackSound || !hitSound) {
+        printf("Failed to load audio files! SDL_mixer Error: %s\n", Mix_GetError());
     }
 
     Mix_PlayMusic(backgroundMusic, -1);
+    Mix_VolumeMusic(10);
 
     font = TTF_OpenFont("assets/fonts/DigitalDisco.ttf", 24);
     // initPlayers();
@@ -113,8 +116,8 @@ void Game::handleInput() {
         return;
     }
     Uint32 startTime = SDL_GetTicks(); // Get the start time
-    while(gameStart > 100) {
-        // SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);  // Black background
+    while(gameStart > 0) {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);  // Black background
         SDL_RenderClear(renderer);
         gameStart = 3 - (SDL_GetTicks() - startTime) / 1000;
         renderText(std::to_string(gameStart), SCREEN_WIDTH/2, SCREEN_HEIGHT/2, {255, 0, 0, 255});
@@ -200,6 +203,7 @@ void Game::handleGameInput() {
     if (isSpacePressed && !wasSpacePressed) {  // Only shoot if key was just pressed
         if (currentTime - player1->lastAttackTime >= player1->ATTACK_COOLDOWN) {
             player1->attack(currentTime);
+            Mix_PlayChannel(-1, attackSound, 0);
         }
     }
     wasSpacePressed = isSpacePressed;  // Update previous state
@@ -209,6 +213,7 @@ void Game::handleGameInput() {
     if (isReturnPressed && !wasReturnPressed) {  // Only shoot if key was just pressed
         if (currentTime - player2->lastAttackTime >= player2->ATTACK_COOLDOWN) {
             player2->attack(currentTime);
+            Mix_PlayChannel(-1, attackSound, 0);
         }
     }
     wasReturnPressed = isReturnPressed;  // Update previous state
@@ -320,11 +325,13 @@ void Game::renderGameOver() {
 }
 
 void Game::renderGame() {
+    if (gameState == MENU || gameState == GAME_OVER) {
+        return;
+    }
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, backgroundTexture, NULL, NULL);
 	player1->draw();
     player2->draw();
-    std::cout << projectiles.size() << std::endl;
     for (auto& p : projectiles)
     {
         p->draw();
@@ -369,7 +376,7 @@ void Game::render()  {
 }
 
 void Game::update() {
-    if (gameState == MENU) {
+    if (gameState == MENU || gameState == GAME_OVER) {
         return;
     }
     player1->update();
@@ -402,14 +409,16 @@ void Game::projectilesHandler() {
         }
         if (Collision::AABB(player1->destRect, (*it)->destRect, 0.6) && !(*it)->isPlayer1) {
             // hit player 1
+            Mix_PlayChannel(-1, hitSound, 0);
             player1->playAnimation("Hurt");
-            player2->score++;
+            player2->score += player1->damage;
             delete *it;
             it = projectiles.erase(it);
         } else if (Collision::AABB(player2->destRect, (*it)->destRect, 0.6) && (*it)->isPlayer1) {
             // hit player 2
+            Mix_PlayChannel(-1, hitSound, 0);
             player2->playAnimation("Hurt");
-            player1->score += 2;
+            player1->score += player2->damage;
             delete *it;
             it = projectiles.erase(it);
         } else {
@@ -420,6 +429,10 @@ void Game::projectilesHandler() {
 
 void Game::clean() {
     Mix_FreeMusic(backgroundMusic);
+    Mix_FreeChunk(attackSound);
+    Mix_FreeChunk(hitSound);
+    Mix_CloseAudio();
+
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_DestroyTexture(backgroundTexture);

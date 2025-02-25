@@ -57,6 +57,8 @@ public:
 	SDL_Window *window;
     SDL_Texture* backgroundTexture;
     Mix_Music* backgroundMusic;
+    Mix_Chunk* attackSound;
+    Mix_Chunk* hitSound;
     TTF_Font *font;
     std::string winnerText;
     Uint32 gameOverStartTime;

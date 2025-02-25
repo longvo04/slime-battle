@@ -19,6 +19,7 @@ public:
     Vector2D position;
     Vector2D velocity;
     Vector2D projectileVelocity;
+    int damage;
     int width;
     int height;
     int scale = 1;
@@ -69,7 +70,7 @@ public:
     bool isOnLastFrame();
 
     Player();
-    Player(int x, int y, int w, int h, int s, int sc, Uint32 ATTACK_COOLDOWN, bool isP1 = true);
+    Player(int x, int y, int w, int h, int s, int sc, Uint32 ATTACK_COOLDOWN, int damage, bool isP1 = true);
     ~Player();
     void update();
     void keepInBounds();
