@@ -28,6 +28,17 @@ public:
     bool hasChildren = false;
     float childScale = 0.5; // Children are smaller than parent
     bool isActive = true;
+
+    // AI behavior variables
+    bool isAIControlled = false;
+    Uint32 aiMoveTimer = 0;
+    Uint32 aiShootTimer = 0;
+    Vector2D aiMoveDirection;
+    
+    // AI behavior methods
+    void updateAI();
+    void aiChooseNewDirection();
+    void aiTryShoot();
     
     bool allChildrenDead();
     void createChildren();

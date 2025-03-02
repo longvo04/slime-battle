@@ -6,6 +6,12 @@
 #include "Constants.h"
 #include <string>
 #include <math.h>
+#include <cstdlib>  // For rand() and srand()
+#include <ctime>    // For time()
+
+// Add to top of Game.cpp
+#include <cstdlib>  // For rand() and srand()
+#include <ctime>    // For time()
 
 Player::Player()
 {
@@ -49,10 +55,95 @@ Player::~Player()
 {
 }
 
+void Player::updateAI() {
+    if (!isActive || isActiveChild || !isChild) return;
+    
+    Uint32 currentTime = SDL_GetTicks();
+    
+    // Check if it's time to change direction
+    if (currentTime > aiMoveTimer) {
+        aiChooseNewDirection();
+        aiMoveTimer = currentTime + (1000 + rand() % 2000); // 1-3 seconds
+    }
+    
+    // Check if it's time to try shooting
+    if (currentTime > aiShootTimer) {
+        aiTryShoot();
+        aiShootTimer = currentTime + (1000 + rand() % 2000); // 1-3 seconds
+    }
+    
+    velocity = aiMoveDirection; // Move in the chosen direction
+}
+
+void Player::aiChooseNewDirection() {
+    // 20% chance to stop
+    if (rand() % 5 == 0) {
+        aiMoveDirection = Vector2D(0, 0);
+        return;
+    }
+    
+    // Choose a random direction
+    int dir = rand() % 8;
+    switch (dir) {
+        case 0: // Up
+            aiMoveDirection = Vector2D(0, -speed);
+            lastDirection = "Up";
+            break;
+        case 1: // Down
+            aiMoveDirection = Vector2D(0, speed);
+            lastDirection = "Down";
+            break;
+        case 2: // Left
+            aiMoveDirection = Vector2D(-speed, 0);
+            lastDirection = "Left";
+            break;
+        case 3: // Right
+            aiMoveDirection = Vector2D(speed, 0);
+            lastDirection = "Right";
+            break;
+        case 4: // Up-Left
+            aiMoveDirection = Vector2D(-speed/1.414, -speed/1.414);
+            lastDirection = "Left";
+            break;
+        case 5: // Up-Right
+            aiMoveDirection = Vector2D(speed/1.414, -speed/1.414);
+            lastDirection = "Right";
+            break;
+        case 6: // Down-Left
+            aiMoveDirection = Vector2D(-speed/1.414, speed/1.414);
+            lastDirection = "Left";
+            break;
+        case 7: // Down-Right
+            aiMoveDirection = Vector2D(speed/1.414, speed/1.414);
+            lastDirection = "Right";
+            break;
+    }
+}
+
+void Player::aiTryShoot() {
+    // Only shoot if cooldown is ready
+    if (SDL_GetTicks() - lastAttackTime >= ATTACK_COOLDOWN) {
+        // Set projectile direction
+        if (lastDirection == "Up") {
+            projectileVelocity = Vector2D(0, -projectileSpeed);
+        } else if (lastDirection == "Down") {
+            projectileVelocity = Vector2D(0, projectileSpeed);
+        } else if (lastDirection == "Left") {
+            projectileVelocity = Vector2D(-projectileSpeed, 0);
+        } else if (lastDirection == "Right") {
+            projectileVelocity = Vector2D(projectileSpeed, 0);
+        }
+        
+        // Attack
+        attack(SDL_GetTicks());
+        Mix_PlayChannel(-1, Game::attackSound, 0);
+    }
+}
+
 void Player::createChildren() {
     if (hasChildren || isChild) return;
     // First child - positioned slightly to the left of parent
-    childA = new Player(position.x - width/2, position.y, width, height, speed*1.2, 2, ATTACK_COOLDOWN*0.8, damage/2, maxHealth/2, isPlayer1);
+    childA = new Player(position.x - width/2, position.y+height/2, width, height, speed*1.2, 2, ATTACK_COOLDOWN*0.8, damage/2, maxHealth/2, isPlayer1);
     childA->addTexture("Idle", isPlayer1 ? "assets/img/slime1_idle.png" : "assets/img/slime2_idle.png");
     childA->addTexture("Walk", isPlayer1 ? "assets/img/slime1_walk.png" : "assets/img/slime2_walk.png");
     childA->addTexture("Attack", isPlayer1 ? "assets/img/slime1_attack.png" : "assets/img/slime2_attack.png");
@@ -63,20 +154,34 @@ void Player::createChildren() {
     childA->isActive = true;
     childA->isActiveChild = true; // Initially the first child is active
 
+    // Initialize AI for child A
+    childA->aiMoveTimer = SDL_GetTicks() + (1000 + rand() % 2000);
+    childA->aiShootTimer = SDL_GetTicks() + (1000 + rand() % 2000);
+    childA->aiChooseNewDirection();
+    
     // Second child - positioned slightly to the right of parent
-    childB = new Player(position.x + width/2, position.y, width, height, speed*1.2, 2, ATTACK_COOLDOWN*0.8, damage/2, maxHealth/2, isPlayer1);
+    childB = new Player(position.x + width/2, position.y+height/2, width, height, speed*1.2, 2, ATTACK_COOLDOWN*0.8, damage/2, maxHealth/2, isPlayer1);
     childB->addTexture("Idle", isPlayer1 ? "assets/img/slime1_idle.png" : "assets/img/slime2_idle.png");
     childB->addTexture("Walk", isPlayer1 ? "assets/img/slime1_walk.png" : "assets/img/slime2_walk.png");
     childB->addTexture("Attack", isPlayer1 ? "assets/img/slime1_attack.png" : "assets/img/slime2_attack.png");
     childB->addTexture("Hurt", isPlayer1 ? "assets/img/slime1_hurt.png" : "assets/img/slime2_hurt.png");
     childB->initAnimation();
     childB->initProjectile(projectileSize*childScale, projectileSpeed*1.8, projectileTexturePath, *projectiles, 7);
+    childB->isAIControlled = true;
     childB->isChild = true;
     childB->isActive = true;
     childB->isActiveChild = false; // Initially the first child is active
 
+    // Initialize AI for child B
+    childB->aiMoveTimer = SDL_GetTicks() + (1000 + rand() % 2000);
+    childB->aiShootTimer = SDL_GetTicks() + (1000 + rand() % 2000);
+    childB->aiChooseNewDirection();
+
     hasChildren = true;
     isActive = false;
+
+    // Seed random number generator for AI behavior
+    srand(static_cast<unsigned int>(SDL_GetTicks()));
 }
 
 bool Player::allChildrenDead() {
@@ -130,6 +235,9 @@ void Player::update()
         return;
     }
     if (!isActive) return;
+    if (isChild && isAIControlled) {
+        updateAI();
+    }
     if (state == ATTACK || state == HURT) {
         velocity = Vector2D();
         if (isOnLastFrame()) {

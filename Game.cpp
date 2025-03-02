@@ -48,6 +48,9 @@ void Game::initPlayers() {
 }
 
 bool Game::init() {
+    // Initialize random number generator
+    srand(static_cast<unsigned int>(time(nullptr)));
+
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         return false;
     }
@@ -161,9 +164,11 @@ void Game::handleGameInput() {
         player1->childA->isActiveChild = !player1->childA->isActiveChild;
         player1->childB->isActiveChild = !player1->childB->isActiveChild;
         if (player1->childA->isActiveChild) {
-            player1->childB->iddle();
+            player1->childB->isAIControlled = true;
+            player1->childA->isAIControlled = false;
         } else {
-            player1->childA->iddle();
+            player1->childA->isAIControlled = true;
+            player1->childB->isAIControlled = false;
         }
     }
     wasJPressed = isJPressed;  // Update previous state
