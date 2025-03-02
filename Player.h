@@ -14,16 +14,31 @@ public:
         IDLE,
         WALK,
         ATTACK,
-        HURT
+        HURT,
+        DEAD
     };
     Vector2D position;
     Vector2D velocity;
     Vector2D projectileVelocity;
+
+    bool isChild = false;
+    Player* childA = nullptr;
+    Player* childB = nullptr;
+    bool isActiveChild = true;
+    bool hasChildren = false;
+    float childScale = 0.5; // Children are smaller than parent
+    bool isActive = true;
+    
+    bool allChildrenDead();
+    void createChildren();
+
     int damage;
     int width;
     int height;
     int scale = 1;
     int speed;
+    int health;
+    int maxHealth;
     int score = 0;
     PlayerState state = IDLE;
     bool isPlayer1 = true;
@@ -61,6 +76,10 @@ public:
     void handleInput();
     void resetAnimation();
 
+    void getHit(int damage);
+    void iddle();
+    void drawCooldownCircle(float x, float y, float radius, float progress);
+
     std::vector<Projectile*>* projectiles;
 
     void createProjectile();
@@ -70,7 +89,7 @@ public:
     bool isOnLastFrame();
 
     Player();
-    Player(int x, int y, int w, int h, int s, int sc, Uint32 ATTACK_COOLDOWN, int damage, bool isP1 = true);
+    Player(int x, int y, int w, int h, int s, int sc, Uint32 ATTACK_COOLDOWN, int damage, int maxHealth, bool isP1 = true);
     ~Player();
     void update();
     void keepInBounds();

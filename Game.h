@@ -48,17 +48,16 @@ public:
     void clearPlayers();
     void clearProjectiles();
     void projectilesHandler();
-    void drawCooldownCircle(float x, float y, float radius, float progress);
 
 	// void keepInBounds();
 
 	static SDL_Renderer *renderer;
 	static SDL_Event event;
+    static Mix_Chunk* attackSound;
+    static Mix_Chunk* hitSound;
 	SDL_Window *window;
     SDL_Texture* backgroundTexture;
     Mix_Music* backgroundMusic;
-    Mix_Chunk* attackSound;
-    Mix_Chunk* hitSound;
     TTF_Font *font;
     std::string winnerText;
     Uint32 gameOverStartTime;

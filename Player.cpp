@@ -3,8 +3,9 @@
 #include "SDL_image.h"
 #include "SDL.h"
 #include "Projectile.h"
-#include <string>
 #include "Constants.h"
+#include <string>
+#include <math.h>
 
 Player::Player()
 {
@@ -23,7 +24,7 @@ Player::Player()
     destRect.h = srcRect.h * scale;
 }
 
-Player::Player(int x, int y, int w, int h, int s, int sc, Uint32 attack_cooldown, int d, bool isP1)
+Player::Player(int x, int y, int w, int h, int s, int sc, Uint32 attack_cooldown, int d, int health, bool isP1)
 {
     position = Vector2D(x, y);
     velocity = Vector2D();
@@ -40,14 +41,47 @@ Player::Player(int x, int y, int w, int h, int s, int sc, Uint32 attack_cooldown
     ATTACK_COOLDOWN = attack_cooldown;
     damage = d;
     projectiles = nullptr;
+    this->health = health;
+    maxHealth = health;
 }
-
-
-
-
 
 Player::~Player()
 {
+}
+
+void Player::createChildren() {
+    if (hasChildren || isChild) return;
+    // First child - positioned slightly to the left of parent
+    childA = new Player(position.x - width/2, position.y, width, height, speed*1.2, 2, ATTACK_COOLDOWN*0.8, damage/2, maxHealth/2, isPlayer1);
+    childA->addTexture("Idle", isPlayer1 ? "assets/img/slime1_idle.png" : "assets/img/slime2_idle.png");
+    childA->addTexture("Walk", isPlayer1 ? "assets/img/slime1_walk.png" : "assets/img/slime2_walk.png");
+    childA->addTexture("Attack", isPlayer1 ? "assets/img/slime1_attack.png" : "assets/img/slime2_attack.png");
+    childA->addTexture("Hurt", isPlayer1 ? "assets/img/slime1_hurt.png" : "assets/img/slime2_hurt.png");
+    childA->initAnimation();
+    childA->initProjectile(projectileSize*childScale, projectileSpeed*1.8, projectileTexturePath, *projectiles, 7);
+    childA->isChild = true;
+    childA->isActive = true;
+    childA->isActiveChild = true; // Initially the first child is active
+
+    // Second child - positioned slightly to the right of parent
+    childB = new Player(position.x + width/2, position.y, width, height, speed*1.2, 2, ATTACK_COOLDOWN*0.8, damage/2, maxHealth/2, isPlayer1);
+    childB->addTexture("Idle", isPlayer1 ? "assets/img/slime1_idle.png" : "assets/img/slime2_idle.png");
+    childB->addTexture("Walk", isPlayer1 ? "assets/img/slime1_walk.png" : "assets/img/slime2_walk.png");
+    childB->addTexture("Attack", isPlayer1 ? "assets/img/slime1_attack.png" : "assets/img/slime2_attack.png");
+    childB->addTexture("Hurt", isPlayer1 ? "assets/img/slime1_hurt.png" : "assets/img/slime2_hurt.png");
+    childB->initAnimation();
+    childB->initProjectile(projectileSize*childScale, projectileSpeed*1.8, projectileTexturePath, *projectiles, 7);
+    childB->isChild = true;
+    childB->isActive = true;
+    childB->isActiveChild = false; // Initially the first child is active
+
+    hasChildren = true;
+    isActive = false;
+}
+
+bool Player::allChildrenDead() {
+    if (!hasChildren) return false;
+    return (childA->health <= 0) && (childB->health <= 0);
 }
 
 void Player::initProjectile(int bulletSize, int bulletSpeed, std::string path, std::vector<Projectile*> &projectiles, int ricochetLimit) {
@@ -90,6 +124,12 @@ void Player::initAnimation() {
 
 void Player::update()
 {
+    if (hasChildren) {
+        childA->update();
+        childB->update();
+        return;
+    }
+    if (!isActive) return;
     if (state == ATTACK || state == HURT) {
         velocity = Vector2D();
         if (isOnLastFrame()) {
@@ -135,9 +175,98 @@ void Player::keepInBounds()
     }
 }
 
+void Player::drawCooldownCircle(float x, float y, float radius, float progress) {
+    const int segments = 30;  // Number of segments to draw
+    float maxAngle = progress * 2 * M_PI;  // Convert progress (0-1) to radians
+    
+    // Draw background circle
+    SDL_SetRenderDrawColor(Game::renderer, 100, 100, 100, 100);  // Gray, semi-transparent
+    for (int i = 0; i < segments; i++) {
+        float startAngle = (float)i / segments * 2 * M_PI;
+        float endAngle = (float)(i + 1) / segments * 2 * M_PI;
+        
+        SDL_RenderDrawLine(Game::renderer,
+            x + cos(startAngle) * radius,
+            y + sin(startAngle) * radius,
+            x + cos(endAngle) * radius,
+            y + sin(endAngle) * radius);
+    }
+    
+    // Draw remaining cooldown in brighter color
+    SDL_SetRenderDrawColor(Game::renderer, 255, 255, 255, 255);  // White
+    for (int i = 0; i < segments; i++) {
+        float startAngle = (float)i / segments * 2 * M_PI;
+        if (startAngle > maxAngle) break;  // Stop at progress point
+        
+        float endAngle = (float)(i + 1) / segments * 2 * M_PI;
+        if (endAngle > maxAngle) endAngle = maxAngle;
+        
+        SDL_RenderDrawLine(Game::renderer,
+            x + cos(startAngle) * radius,
+            y + sin(startAngle) * radius,
+            x + cos(endAngle) * radius,
+            y + sin(endAngle) * radius);
+    }
+    // SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+}
+
 void Player::draw()
 {
+    if (hasChildren) {
+        childA->draw();
+        childB->draw();
+        return;
+    }
+    if (!isActive) return;
+    // Draw player
     SDL_RenderCopy(Game::renderer, texture, &srcRect, &destRect);
+    // Draw cooldown indicators
+    Uint32 currentTime = SDL_GetTicks();
+    if (currentTime - lastAttackTime < ATTACK_COOLDOWN) {
+        float progress = 1.0f - (float)(currentTime - lastAttackTime) / ATTACK_COOLDOWN;
+        float centerX = destRect.x + destRect.w / 2;
+        float centerY = destRect.y + destRect.h / 2;
+        drawCooldownCircle(centerX, centerY, destRect.w * 0.4f, progress);
+    }
+    if (!isChild) {
+        int barWidth = 80;
+        int barHeight = 10;
+        SDL_Rect healthBarBg = {destRect.x + (destRect.w - barWidth) / 2, destRect.y + 40, barWidth, barHeight};
+        SDL_Rect healthBar = {destRect.x + (destRect.w - barWidth) / 2, destRect.y + 40, (int)(barWidth * (health / (float)maxHealth)), barHeight};
+        
+        SDL_SetRenderDrawColor(Game::renderer, 100, 100, 100, 255); // Gray background
+        SDL_RenderFillRect(Game::renderer, &healthBarBg);
+
+        if (isPlayer1) {
+            SDL_SetRenderDrawColor(Game::renderer, 50, 168, 102, 255); // Green health
+        } else {
+            SDL_SetRenderDrawColor(Game::renderer, 92, 30, 179, 255); // Purple health
+        }
+        SDL_RenderFillRect(Game::renderer, &healthBar);
+    } else {
+        // Child health bars - smaller and positioned above the character
+        int barWidth = 40;
+        int barHeight = 5;
+        SDL_Rect healthBarBg = {destRect.x + (destRect.w - barWidth) / 2, destRect.y + 40, barWidth, barHeight};
+        SDL_Rect healthBar = {destRect.x + (destRect.w - barWidth) / 2, destRect.y + 40, (int)(barWidth * (health / (float)maxHealth)), barHeight};
+        
+        SDL_SetRenderDrawColor(Game::renderer, 100, 100, 100, 255); // Gray background
+        SDL_RenderFillRect(Game::renderer, &healthBarBg);
+        
+        // Use same color as parent player
+        if (isPlayer1) {
+            SDL_SetRenderDrawColor(Game::renderer, 50, 168, 102, 255); // Green health
+        } else {
+            SDL_SetRenderDrawColor(Game::renderer, 92, 30, 179, 255); // Purple health
+        }
+        SDL_RenderFillRect(Game::renderer, &healthBar);
+        
+        // Indicate which child is active with a small marker
+        if (isActiveChild) {
+            SDL_Rect activeMarker = {destRect.x + destRect.w / 2 - 3, destRect.y + 35, 6, 3};
+            SDL_RenderFillRect(Game::renderer, &activeMarker);
+        }
+    }
 }
 
 void Player::addTexture(std::string textName, std::string path)
@@ -265,6 +394,22 @@ void Player::playMoveAnimation() {
     playWalkAnimation();
 }
 
+void Player::getHit(int damage) {
+    Mix_PlayChannel(-1, Game::hitSound, 0);
+    playAnimation("Hurt");
+    health -= damage;
+    if (health <= 0) {
+        health = 0;
+        isActive = false;
+        state = DEAD;
+    }
+}
+
+void Player::iddle() {
+    playAnimation("Idle");
+    velocity = Vector2D();
+}
+
 void Player::play(std::string animationName) {
     if (animations.find(animationName) == animations.end()) {
         std::cout << "Animation not found" << std::endl;
@@ -276,6 +421,8 @@ void Player::play(std::string animationName) {
 }
 
 void Player::handlePlayer1Input() {
+    if (!isActive) return;
+    // Moving
     const Uint8* state = SDL_GetKeyboardState(NULL);
     bool isMoving = false;
     if (state[SDL_SCANCODE_W]) {
@@ -309,9 +456,22 @@ void Player::handlePlayer1Input() {
     } else {
         playAnimation("Move");
     }
+
+    // Attacking
+    static bool wasSpacePressed = false;    // Track previous state of Space key
+    bool isSpacePressed = state[SDL_SCANCODE_SPACE];
+    if (isSpacePressed && !wasSpacePressed) {  // Only shoot if key was just pressed
+        if (SDL_GetTicks() - lastAttackTime >= ATTACK_COOLDOWN) {
+            attack(SDL_GetTicks());
+            Mix_PlayChannel(-1, Game::attackSound, 0);
+        }
+    }
+    wasSpacePressed = isSpacePressed;  // Update previous state
 }
 
 void Player::handlePlayer2Input() {
+    if (!isActive) return;
+    // Moving
     const Uint8* state = SDL_GetKeyboardState(NULL);
     bool isMoving = false;
     if (state[SDL_SCANCODE_UP]) {
@@ -345,6 +505,17 @@ void Player::handlePlayer2Input() {
     } else {
         playAnimation("Move");
     }
+
+    // Attacking
+    static bool wasReturnPressed = false;    // Track previous state of Return key
+    bool isReturnPressed = state[SDL_SCANCODE_RETURN];
+    if (isReturnPressed && !wasReturnPressed) {  // Only shoot if key was just pressed
+        if (SDL_GetTicks() - lastAttackTime >= ATTACK_COOLDOWN) {
+            attack(SDL_GetTicks());
+            Mix_PlayChannel(-1, Game::attackSound, 0);
+        }
+    }
+    wasReturnPressed = isReturnPressed;  // Update previous state
 }
 
 bool Player::collision(SDL_Rect target) {
@@ -368,7 +539,6 @@ bool Player::isOnLastFrame() {
 }
 
 void Player::attack(Uint32 currentTime) {
-    std::cout << "Player attacking at time: " << currentTime << std::endl; // Debug statement
     playAnimation("Attack");
     lastAttackTime = currentTime;
     projectileVelocity = velocity.direction()*projectileSpeed;
@@ -385,9 +555,16 @@ void Player::attack(Uint32 currentTime) {
 }
 
 void Player::handleInput() {
+    if (hasChildren) {
+        childA->handleInput();
+        childB->handleInput();
+        return;
+    }
     if (state == ATTACK || state == HURT) {
         return;
     }
+    if (!isActive) return;
+    if (!isActiveChild) return;
     if (isPlayer1) {
         handlePlayer1Input();
     } else {

@@ -10,6 +10,8 @@
 
 SDL_Renderer* Game::renderer = nullptr;
 SDL_Event Game::event;
+Mix_Chunk* Game::attackSound = nullptr;
+Mix_Chunk* Game::hitSound = nullptr;
 
 Game::Game()
 {
@@ -27,20 +29,20 @@ Game::~Game()
 }
 
 void Game::initPlayers() {
-    player1 = new Player(SCREEN_WIDTH/4,SCREEN_HEIGHT/2,64,64,PLAYER_SPEED*1.2,2,1000, 1, true);
+    player1 = new Player(SCREEN_WIDTH/4,SCREEN_HEIGHT/2,64,64,PLAYER_SPEED*1.2,3,1000, 10, 100, true);
     player1->addTexture("Idle", "assets/img/slime1_idle.png");
     player1->addTexture("Walk", "assets/img/slime1_walk.png");
     player1->addTexture("Attack", "assets/img/slime1_attack.png");
     player1->addTexture("Hurt", "assets/img/slime1_hurt.png");
     player1->initAnimation();
-    player1->initProjectile(BULLET_SIZE, BULLET_SPEED*2, "assets/img/projectile_green.png", projectiles, 15);
+    player1->initProjectile(BULLET_SIZE*2, BULLET_SPEED*2, "assets/img/projectile_green.png", projectiles, 9);
 
-    player2 = new Player(3*SCREEN_WIDTH/4,SCREEN_HEIGHT/2,64,64,PLAYER_SPEED*1.2,2,1000, 1, false);
+    player2 = new Player(3*SCREEN_WIDTH/4,SCREEN_HEIGHT/2,64,64,PLAYER_SPEED*1.2,3,1000, 10, 100, false);
     player2->addTexture("Idle", "assets/img/slime2_idle.png");
     player2->addTexture("Walk", "assets/img/slime2_walk.png");
     player2->addTexture("Attack", "assets/img/slime2_attack.png");
     player2->addTexture("Hurt", "assets/img/slime2_hurt.png");
-    player2->initProjectile(BULLET_SIZE, BULLET_SPEED*2, "assets/img/projectile.png", projectiles, 15);
+    player2->initProjectile(BULLET_SIZE*2, BULLET_SPEED*2, "assets/img/projectile.png", projectiles, 9);
     player2->initAnimation();
     gameStart = 3;
 }
@@ -126,41 +128,6 @@ void Game::handleInput() {
     handleGameInput();
 }
 
-void Game::drawCooldownCircle(float x, float y, float radius, float progress) {
-    const int segments = 30;  // Number of segments to draw
-    float maxAngle = progress * 2 * M_PI;  // Convert progress (0-1) to radians
-    
-    // Draw background circle
-    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 100);  // Gray, semi-transparent
-    for (int i = 0; i < segments; i++) {
-        float startAngle = (float)i / segments * 2 * M_PI;
-        float endAngle = (float)(i + 1) / segments * 2 * M_PI;
-        
-        SDL_RenderDrawLine(renderer,
-            x + cos(startAngle) * radius,
-            y + sin(startAngle) * radius,
-            x + cos(endAngle) * radius,
-            y + sin(endAngle) * radius);
-    }
-    
-    // Draw remaining cooldown in brighter color
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);  // White
-    for (int i = 0; i < segments; i++) {
-        float startAngle = (float)i / segments * 2 * M_PI;
-        if (startAngle > maxAngle) break;  // Stop at progress point
-        
-        float endAngle = (float)(i + 1) / segments * 2 * M_PI;
-        if (endAngle > maxAngle) endAngle = maxAngle;
-        
-        SDL_RenderDrawLine(renderer,
-            x + cos(startAngle) * radius,
-            y + sin(startAngle) * radius,
-            x + cos(endAngle) * radius,
-            y + sin(endAngle) * radius);
-    }
-    // SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-}
-
 void Game::handleGameInput() {
     if (gameState == MENU) {
         return;
@@ -178,45 +145,42 @@ void Game::handleGameInput() {
     player1->handleInput();
     player2->handleInput();
     
-    static bool wasSpacePressed = false;    // Track previous state of Space key
-    static bool wasReturnPressed = false;   // Track previous state of Return key
-    static bool firstFrame = true;
     const Uint8* state = SDL_GetKeyboardState(NULL);
-
-    if (firstFrame) {
-        wasSpacePressed = true;
-        wasReturnPressed = true;
-        firstFrame = false;
-    }
 
     // Handle escape key
     if (state[SDL_SCANCODE_ESCAPE]) {
         clearPlayers();
         clearProjectiles();
         gameState = MENU;
-        firstFrame = true;
     }
 
-    Uint32 currentTime = SDL_GetTicks();
-    // Handle Space key (Player 1)
-    bool isSpacePressed = state[SDL_SCANCODE_SPACE];
-    if (isSpacePressed && !wasSpacePressed) {  // Only shoot if key was just pressed
-        if (currentTime - player1->lastAttackTime >= player1->ATTACK_COOLDOWN) {
-            player1->attack(currentTime);
-            Mix_PlayChannel(-1, attackSound, 0);
+    static bool wasJPressed = false;    // Track previous state of J key
+    bool isJPressed = state[SDL_SCANCODE_J];
+
+    if (isJPressed && !wasJPressed && player1->hasChildren && player1->childA->health > 0 && player1->childB->health > 0) {  // Only shoot if key was just pressed
+        player1->childA->isActiveChild = !player1->childA->isActiveChild;
+        player1->childB->isActiveChild = !player1->childB->isActiveChild;
+        if (player1->childA->isActiveChild) {
+            player1->childB->iddle();
+        } else {
+            player1->childA->iddle();
         }
     }
-    wasSpacePressed = isSpacePressed;  // Update previous state
-    
-    // Handle Return key (Player 2)
-    bool isReturnPressed = state[SDL_SCANCODE_RETURN];
-    if (isReturnPressed && !wasReturnPressed) {  // Only shoot if key was just pressed
-        if (currentTime - player2->lastAttackTime >= player2->ATTACK_COOLDOWN) {
-            player2->attack(currentTime);
-            Mix_PlayChannel(-1, attackSound, 0);
+    wasJPressed = isJPressed;  // Update previous state
+
+    static bool was0Pressed = false;    // Track previous state of 0 key
+    bool is0Pressed = state[SDL_SCANCODE_0];
+
+    if (is0Pressed && !was0Pressed && player2->hasChildren && player2->childA->health > 0 && player2->childB->health > 0) {  // Only shoot if key was just pressed
+        player2->childA->isActiveChild = !player2->childA->isActiveChild;
+        player2->childB->isActiveChild = !player2->childB->isActiveChild;
+        if (player2->childA->isActiveChild) {
+            player2->childB->iddle();
+        } else {
+            player2->childA->iddle();
         }
     }
-    wasReturnPressed = isReturnPressed;  // Update previous state
+    was0Pressed = is0Pressed;  // Update previous state
 }
 
 void Game::handleMenuInput() {
@@ -337,23 +301,6 @@ void Game::renderGame() {
         p->draw();
     }
 
-    // Draw cooldown indicators
-    Uint32 currentTime = SDL_GetTicks();
-    if (currentTime - player1->lastAttackTime < player1->ATTACK_COOLDOWN) {
-        float progress = 1.0f - (float)(currentTime - player1->lastAttackTime) / player1->ATTACK_COOLDOWN;
-        float centerX = player1->destRect.x + player1->destRect.w / 2;
-        float centerY = player1->destRect.y + player1->destRect.h / 2;
-        drawCooldownCircle(centerX, centerY, player1->destRect.w * 0.4f, progress);
-    }
-    
-    // Player 2 cooldown
-    if (currentTime - player2->lastAttackTime < player2->ATTACK_COOLDOWN) {
-        float progress = 1.0f - (float)(currentTime - player2->lastAttackTime) / player2->ATTACK_COOLDOWN;
-        float centerX = player2->destRect.x + player2->destRect.w / 2;
-        float centerY = player2->destRect.y + player2->destRect.h / 2;
-        drawCooldownCircle(centerX, centerY, player2->destRect.w * 0.4f, progress);
-    }
-
     // Draw scores
     SDL_Color textColor = {50, 168, 102, 255};
     std::string mText = "Player 1: " + std::to_string(player1->score);
@@ -379,6 +326,7 @@ void Game::update() {
     if (gameState == MENU || gameState == GAME_OVER) {
         return;
     }
+    
     player1->update();
     player2->update();
 
@@ -388,14 +336,14 @@ void Game::update() {
     }
     projectilesHandler();
     // Check for win condition
-    if (player1->score >= 21 || player2->score >= 21) {
+    if (player1->health <= 0 && player1->allChildrenDead() || player2->health <= 0 && player2->allChildrenDead()) {
         gameState = GAME_OVER;
         gameOverStartTime = SDL_GetTicks();
         
-        if (player1->score >= 21) {
-            winnerText = "Player 1 Wins!";
-        } else {
+        if (player1->health <= 0) {
             winnerText = "Player 2 Wins!";
+        } else {
+            winnerText = "Player 1 Wins!";
         }
     }
 }
@@ -407,22 +355,84 @@ void Game::projectilesHandler() {
             it = projectiles.erase(it);
             continue;
         }
-        if (Collision::AABB(player1->destRect, (*it)->destRect, 0.6) && !(*it)->isPlayer1) {
-            // hit player 1
-            Mix_PlayChannel(-1, hitSound, 0);
-            player1->playAnimation("Hurt");
-            player2->score += player1->damage;
-            delete *it;
-            it = projectiles.erase(it);
-        } else if (Collision::AABB(player2->destRect, (*it)->destRect, 0.6) && (*it)->isPlayer1) {
-            // hit player 2
-            Mix_PlayChannel(-1, hitSound, 0);
-            player2->playAnimation("Hurt");
-            player1->score += player2->damage;
+        
+        bool hitSomething = false;
+        
+        // Check collisions with player1 or its children
+        if (player1->isActive && !(*it)->isPlayer1 && Collision::AABB(player1->destRect, (*it)->destRect, 0.6)) {
+            // Hit player 1
+            player1->getHit(player2->damage);
+            if (player1->health <= 0) {
+                player1->createChildren();
+            }
+            player2->score += 10;
+            hitSomething = true;
+        } 
+        else if (player1->hasChildren) {
+            // Check collisions with player1's children
+            if (player1->childA->isActive && !(*it)->isPlayer1 && Collision::AABB(player1->childA->destRect, (*it)->destRect, 0.6)) {
+                // Hit player 1's child A
+                player1->childA->getHit(player2->damage);
+                if (player1->childA->health <= 0) {
+                    player1->childA->isActive = false;
+                    player1->childB->isActiveChild = true;
+                }
+                player2->score += 20;
+                hitSomething = true;
+            } 
+            else if (player1->childB->isActive && !(*it)->isPlayer1 && Collision::AABB(player1->childB->destRect, (*it)->destRect, 0.6)) {
+                // Hit player 1's child B
+                player1->childB->getHit(player2->damage);
+                if (player1->childB->health <= 0) {
+                    player1->childB->isActive = false;
+                    player1->childA->isActiveChild = true;
+                }
+                player2->score += 20;
+                hitSomething = true;
+            }
+        }
+        
+        // Check collisions with player2 or its children
+        if (!hitSomething) {
+            if (player2->isActive && (*it)->isPlayer1 && Collision::AABB(player2->destRect, (*it)->destRect, 0.6)) {
+                // Hit player 2
+                player2->getHit(player1->damage);
+                if (player2->health <= 0) {
+                    player2->createChildren();
+                }
+                player1->score += 10;
+                hitSomething = true;
+            } 
+            else if (player2->hasChildren) {
+                // Check collisions with player2's children
+                if (player2->childA->isActive && (*it)->isPlayer1 && Collision::AABB(player2->childA->destRect, (*it)->destRect, 0.6)) {
+                    // Hit player 2's child A
+                    player2->childA->getHit(player1->damage);
+                    if (player2->childA->health <= 0) {
+                        player2->childA->isActive = false;
+                        player2->childB->isActiveChild = true;
+                    }
+                    player1->score += 20;
+                    hitSomething = true;
+                }
+                else if (player2->childB->isActive && (*it)->isPlayer1 && Collision::AABB(player2->childB->destRect, (*it)->destRect, 0.6)) {
+                    // Hit player 2's child B
+                    player2->childB->getHit(player1->damage);
+                    if (player2->childB->health <= 0) {
+                        player2->childB->isActive = false;
+                        player2->childA->isActiveChild = true;
+                    }
+                    player1->score += 20;
+                    hitSomething = true;
+                }
+            }
+        }
+        
+        if (hitSomething) {
             delete *it;
             it = projectiles.erase(it);
         } else {
-            it++;
+            ++it;
         }
     }
 }
